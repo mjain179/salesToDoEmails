@@ -104,7 +104,7 @@ def getPatientsForSalespersonReport(dbCursor):
         WHERE sf_ins.type = 'insurance'
             AND ins.earliest_insurance_update >= '2025-06-01'
             AND c5.email LIKE '%motusnova%'
-            AND c5.contact_id=303821
+            AND c5.contact_id=408182
     ),
 
     stuck_age_calculations AS (
@@ -222,7 +222,7 @@ def getPatientsForSalespersonReport(dbCursor):
         WHERE s.type = 'stuck'
             AND ins.earliest_insurance_update >= '2025-06-01'
             AND c5.email LIKE '%motusnova%'
-            AND c5.contact_id=303821
+            AND c5.contact_id=408182
     )
 
     SELECT *
@@ -335,7 +335,7 @@ def getPatientsWithIncompleteSignUpReport(dbCursor):
           AND s.status != 'duplicate'
           AND s.status != 'spam'
           AND c5.email LIKE '%motusnova%'
-          AND c5.contact_id=303821
+          AND c5.contact_id=408182
     )
     SELECT DISTINCT ON (story_id)
         story_id,
@@ -402,11 +402,11 @@ def getPatientsOver90DaysForSalespersonReport(dbCursor):
                     EXTRACT(EPOCH FROM (NOW() - a.begin_time)) / 86400
             END AS stuck_age_in_days,
             CASE 
-                WHEN s2.age_id IS NULL THEN 
-                    EXTRACT(EPOCH FROM (NOW() - ins.earliest_insurance_update)) / 86400
+                WHEN sf_ins.age_id IS NULL THEN 
+                    EXTRACT(EPOCH FROM (NOW() - ins.latest_insurance_update)) / 86400
                 ELSE 
                     EXTRACT(EPOCH FROM (NOW() - a2.begin_time)) / 86400
-            END AS insurance_age_in_days 
+            END AS insurance_age_in_days
         FROM story_fresh AS s
         LEFT JOIN insurance_fresh AS i
             ON i.insurance_id = s.destination
@@ -469,14 +469,12 @@ def getPatientsOver90DaysForSalespersonReport(dbCursor):
             AND s_claims.destination = s.destination
         LEFT JOIN contacts_fresh AS c_mrs
             ON c_mrs.contact_id = s_claims.origin
-        left join story as s_ins
-            on s_ins.story_id = s.destination
         left join age_table a2
-            on a2.age_id = s_ins.age_id
+            on a2.age_id = sf_ins.age_id
         WHERE s.type = 'stuck'
             AND ins.earliest_insurance_update >= '2025-06-01'
             AND c5.email LIKE '%motusnova%'
-            AND c5.contact_id=303821
+            AND c5.contact_id=408182
     )
     SELECT DISTINCT ON (destination)
         destination,
@@ -572,7 +570,7 @@ def getFailedInformedConsentReport(dbCursor):
             AND sf_pss.status IN ('orderCanceled', 'salesHandover', 'salesEscalation')
             AND c5.email LIKE '%motusnova%'
             AND dt_stuck.created_at >= '2026-01-28'
-            AND c5.contact_id=303821
+            AND c5.contact_id=408182
     )
     SELECT DISTINCT ON (profile_id)
         profile_id,
@@ -972,7 +970,7 @@ def createOver90DaysTable(df_salesperson):
                 <th style="border: 1px solid #ddd; padding: 8px;">Name</th>
                 <th style="border: 1px solid #ddd; padding: 8px;">Status</th>
                 <th style="border: 1px solid #ddd; padding: 8px;">Sign Up Date</th>
-                <th style="border: 1px solid #ddd; padding: 8px;">Days Since Sign Up</th>
+                <th style="border: 1px solid #ddd; padding: 8px;">Days in Current Status</th>
                 <th style="border: 1px solid #ddd; padding: 8px;">Clinic Name</th>
                 <th style="border: 1px solid #ddd; padding: 8px;">CRM Link</th>
             </tr>
