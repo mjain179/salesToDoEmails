@@ -104,7 +104,6 @@ def getPatientsForSalespersonReport(dbCursor):
         WHERE sf_ins.type = 'insurance'
             AND ins.earliest_insurance_update >= '2025-06-01'
             AND c5.email LIKE '%motusnova%'
-            AND c5.contact_id=408182
     ),
 
     stuck_age_calculations AS (
@@ -142,13 +141,13 @@ def getPatientsForSalespersonReport(dbCursor):
                     EXTRACT(EPOCH FROM (NOW() - a.begin_time)) / 86400
             END AS stuck_age_in_days,
             CASE 
-                WHEN s2.age_id IS NULL THEN 
+                WHEN sf_ins.age_id IS NULL THEN 
                     EXTRACT(EPOCH FROM (NOW() - ins.earliest_insurance_update)) / 86400
                 ELSE 
                     EXTRACT(EPOCH FROM (NOW() - a2.begin_time)) / 86400
             END AS insurance_age_in_days,
             CASE 
-                WHEN s2.age_id IS NULL THEN 
+                WHEN sf_ins.age_id IS NULL THEN 
                     EXTRACT(EPOCH FROM (NOW() - ins.latest_insurance_update)) / 86400
                 ELSE 
                     EXTRACT(EPOCH FROM (NOW() - a2.begin_time)) / 86400
@@ -215,14 +214,11 @@ def getPatientsForSalespersonReport(dbCursor):
             AND s_claims.destination = s.destination
         LEFT JOIN contacts_fresh AS c_mrs
             ON c_mrs.contact_id = s_claims.origin
-        LEFT JOIN story AS s_ins
-            ON s_ins.story_id = s.destination
         LEFT JOIN age_table a2
-            ON a2.age_id = s_ins.age_id
+            ON a2.age_id = sf_ins.age_id
         WHERE s.type = 'stuck'
             AND ins.earliest_insurance_update >= '2025-06-01'
             AND c5.email LIKE '%motusnova%'
-            AND c5.contact_id=408182
     )
 
     SELECT *
@@ -270,26 +266,26 @@ def getPatientsForSalespersonReport(dbCursor):
         WHERE
         (
             (status IN ('insuranceCard', 'insuranceTerminated', 'insuranceVerification', 'needDoctor', 'requestedInfoAdded', 'missingPatientInfo','missingProductInfo')
-                AND stuck_age_in_days > 4 AND stuck_age_in_days <= 90)
+                AND insurance_status_age_in_days > 4 AND insurance_status_age_in_days <= 90)
             OR
             (status IN ('reject','rejectAuth','close','needDME','notCovered','info','readyToBill')
-                AND stuck_age_in_days > 3 AND stuck_age_in_days <= 90)
+                AND insurance_status_age_in_days > 3 AND insurance_status_age_in_days <= 90)
             OR
             (status IN ('auth','telehealth','HMO')
-                AND stuck_age_in_days > 7 AND stuck_age_in_days <= 90)
+                AND insurance_status_age_in_days > 7 AND insurance_status_age_in_days <= 90)
             OR
             (status = 'deliveryTicket'
-                AND stuck_age_in_days > 5 AND stuck_age_in_days <= 90
-                AND delivery_ticket IS NOT NULL)
+                AND insurance_status_age_in_days > 5 AND insurance_status_age_in_days <= 90
+                AND (delivery_ticket IS NULL OR delivery_ticket = ''))
             OR
             (status = 'submitted'
-                AND stuck_age_in_days > 30 AND stuck_age_in_days <= 90)
+                AND insurance_status_age_in_days > 30 AND insurance_status_age_in_days <= 90)
             OR
             (status = 'newClaim'
-                AND stuck_age_in_days > 2 AND stuck_age_in_days <= 90)
+                AND insurance_status_age_in_days > 2 AND insurance_status_age_in_days <= 90)
             OR 
             (status = 'appeal'
-                AND stuck_age_in_days > 15 AND stuck_age_in_days <= 90)
+                AND insurance_status_age_in_days > 15 AND insurance_status_age_in_days <= 90)
         )
         AND insurance_age_in_days <= 90
         ORDER BY destination, earliest_insurance_update ASC
@@ -335,7 +331,6 @@ def getPatientsWithIncompleteSignUpReport(dbCursor):
           AND s.status != 'duplicate'
           AND s.status != 'spam'
           AND c5.email LIKE '%motusnova%'
-          AND c5.contact_id=408182
     )
     SELECT DISTINCT ON (story_id)
         story_id,
@@ -474,7 +469,6 @@ def getPatientsOver90DaysForSalespersonReport(dbCursor):
         WHERE s.type = 'stuck'
             AND ins.earliest_insurance_update >= '2025-06-01'
             AND c5.email LIKE '%motusnova%'
-            AND c5.contact_id=408182
     )
     SELECT DISTINCT ON (destination)
         destination,
@@ -570,7 +564,6 @@ def getFailedInformedConsentReport(dbCursor):
             AND sf_pss.status IN ('orderCanceled', 'salesHandover', 'salesEscalation')
             AND c5.email LIKE '%motusnova%'
             AND dt_stuck.created_at >= '2026-01-28'
-            AND c5.contact_id=408182
     )
     SELECT DISTINCT ON (profile_id)
         profile_id,
@@ -783,10 +776,7 @@ def createHTMLTable(df_salesperson):
         patient_name = f"{row['patient_first_name'] or ''} {row['patient_last_name'] or ''}".strip()
         status = row['status']
         created_date = row['earliest_insurance_update'].strftime('%Y-%m-%d') if not pd.isna(row['earliest_insurance_update']) else 'N/A'
-        if pd.isna(row['stuck_age_in_days']):
-            days_in_status = int(row['insurance_status_age_in_days']) if not pd.isna(row['insurance_status_age_in_days']) else 0
-        else:
-            days_in_status = int(row['stuck_age_in_days'])
+        days_in_status = int(row['insurance_status_age_in_days']) if not pd.isna(row['insurance_status_age_in_days']) else 0
         
         # Make "Yes" a hyperlink to the insurance card if it exists
         if not pd.isna(row['primary_insurance_card']):
@@ -1014,8 +1004,8 @@ def sendSalespersonEmail(salesperson_email, salesperson_name, salesperson_contac
         
         msg = MIMEMultipart()
         msg['From'] = 'service@motusnova.com'
-        msg['To'] = 'manav.jain@motusnova.com'#salesperson_email
-        #msg['Cc'] = 'parth.patel@motusnova.com'
+        msg['To'] = salesperson_email
+        msg['Cc'] = 'parth.patel@motusnova.com'
         msg['Subject'] = f'Patient Follow-Up Report - {patient_count + incomplete_count} Patients Requiring Action'
         
         # Build sixty days section if exists
