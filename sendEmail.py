@@ -54,10 +54,17 @@ def getPatientsForSalespersonReport(dbCursor):
             c_clinic.first_name AS clinic_name,
             NULL::float AS stuck_age_in_days,
             EXTRACT(EPOCH FROM (NOW() - ins.earliest_insurance_update)) / 86400 AS insurance_age_in_days,
-            EXTRACT(EPOCH FROM (NOW() - ins.latest_insurance_update)) / 86400 AS insurance_status_age_in_days
+            CASE
+                WHEN sf_ins.age_id IS NULL OR a_ins.status IS DISTINCT FROM sf_ins.status THEN
+                    EXTRACT(EPOCH FROM (NOW() - ins.latest_insurance_update)) / 86400
+                ELSE
+                    EXTRACT(EPOCH FROM (NOW() - a_ins.begin_time)) / 86400
+            END AS insurance_status_age_in_days
         FROM story_fresh AS sf_ins
         LEFT JOIN insurance_fresh AS i
             ON i.insurance_id = sf_ins.story_id
+        LEFT JOIN age_table a_ins
+            ON a_ins.age_id = sf_ins.age_id
         LEFT JOIN contacts_fresh AS c
             ON c.contact_id = sf_ins.destination
         LEFT JOIN (
@@ -66,8 +73,7 @@ def getPatientsForSalespersonReport(dbCursor):
                 MAX(created_at) AS latest_insurance_update,
                 MIN(created_at) AS earliest_insurance_update
             FROM story
-            WHERE type = 'insurance'
-                AND status IS NOT NULL
+                WHERE status IS NOT NULL
                 AND status <> 'duplicate'
             GROUP BY story_id
         ) ins
@@ -134,24 +140,25 @@ def getPatientsForSalespersonReport(dbCursor):
             c_mrs.first_name AS mrs_first_name,
             c_mrs.last_name AS mrs_last_name,
             c_clinic.first_name AS clinic_name,
-            CASE 
-                WHEN s.age_id IS NULL THEN 
-                    EXTRACT(EPOCH FROM (NOW() - stuck.earliest_stuck_update)) / 86400
-                ELSE 
-                    EXTRACT(EPOCH FROM (NOW() - a.begin_time)) / 86400
-            END AS stuck_age_in_days,
-            CASE 
-                WHEN sf_ins.age_id IS NULL THEN 
-                    EXTRACT(EPOCH FROM (NOW() - ins.earliest_insurance_update)) / 86400
-                ELSE 
-                    EXTRACT(EPOCH FROM (NOW() - a2.begin_time)) / 86400
-            END AS insurance_age_in_days,
-            CASE 
-                WHEN sf_ins.age_id IS NULL THEN 
-                    EXTRACT(EPOCH FROM (NOW() - ins.latest_insurance_update)) / 86400
-                ELSE 
-                    EXTRACT(EPOCH FROM (NOW() - a2.begin_time)) / 86400
-            END AS insurance_status_age_in_days
+            -- AFTER
+        CASE 
+            WHEN s.age_id IS NULL OR a.status IS DISTINCT FROM s.status THEN 
+                EXTRACT(EPOCH FROM (NOW() - stuck.earliest_stuck_update)) / 86400
+            ELSE 
+                EXTRACT(EPOCH FROM (NOW() - a.begin_time)) / 86400
+        END AS stuck_age_in_days,
+        CASE 
+            WHEN sf_ins.age_id IS NULL OR a2.status IS DISTINCT FROM sf_ins.status THEN 
+                EXTRACT(EPOCH FROM (NOW() - ins.earliest_insurance_update)) / 86400
+            ELSE 
+                EXTRACT(EPOCH FROM (NOW() - a2.begin_time)) / 86400
+        END AS insurance_age_in_days,
+        CASE 
+            WHEN sf_ins.age_id IS NULL OR a2.status IS DISTINCT FROM sf_ins.status THEN 
+                EXTRACT(EPOCH FROM (NOW() - ins.latest_insurance_update)) / 86400
+            ELSE 
+                EXTRACT(EPOCH FROM (NOW() - a2.begin_time)) / 86400
+        END AS insurance_status_age_in_days
         FROM story_fresh AS s
         LEFT JOIN insurance_fresh AS i
             ON i.insurance_id = s.destination
@@ -167,8 +174,7 @@ def getPatientsForSalespersonReport(dbCursor):
                 MAX(created_at) AS latest_insurance_update,
                 MIN(created_at) AS earliest_insurance_update
             FROM story
-            WHERE type = 'insurance'
-                AND status IS NOT NULL
+                WHERE status IS NOT NULL
                 AND status <> 'duplicate'
             GROUP BY story_id
         ) ins
@@ -391,13 +397,13 @@ def getPatientsOver90DaysForSalespersonReport(dbCursor):
             c_mrs.last_name AS mrs_last_name,
             c_clinic.first_name AS clinic_name,
             CASE 
-                WHEN s.age_id IS NULL THEN 
+                WHEN s.age_id IS NULL OR a.status IS DISTINCT FROM s.status THEN 
                     EXTRACT(EPOCH FROM (NOW() - stuck.earliest_stuck_update)) / 86400
                 ELSE 
                     EXTRACT(EPOCH FROM (NOW() - a.begin_time)) / 86400
             END AS stuck_age_in_days,
             CASE 
-                WHEN sf_ins.age_id IS NULL THEN 
+                WHEN sf_ins.age_id IS NULL OR a2.status IS DISTINCT FROM sf_ins.status THEN 
                     EXTRACT(EPOCH FROM (NOW() - ins.latest_insurance_update)) / 86400
                 ELSE 
                     EXTRACT(EPOCH FROM (NOW() - a2.begin_time)) / 86400
@@ -417,8 +423,7 @@ def getPatientsOver90DaysForSalespersonReport(dbCursor):
                 MAX(created_at) AS latest_insurance_update,
                 MIN(created_at) as earliest_insurance_update
             FROM story
-            WHERE type = 'insurance'
-                AND status IS NOT NULL
+                WHERE status IS NOT NULL
                 AND status <> 'duplicate'
             GROUP BY story_id
         ) ins
@@ -665,7 +670,7 @@ def determineAction(row):
     elif status in ['missingPatientInfo', 'missingProductInfo', 'insuranceVerification', 
                     'requestedInfoAdded', 'auth', 'telehealth', 'HMO', 'info', 'readyToBill', 
                     'deliveryTicket', 'submitted', 'newClaim']:
-        return 'contactTristin', None
+        return 'contactRahim', None
     
     return 'unknown', None
 
@@ -681,7 +686,7 @@ def getActionLegend():
             <li><strong>followUpWithMedicalRecordSpecialist:</strong> Follow up with the medical records specialist (name provided in parentheses) to see what you can do to help and to understand the current roadblock if any.</li>
             <li><strong>needInsuranceCard:</strong> We need front and back pictures of the patient's primary insurance card. The patient has been emailed and texted about this, maybe even called but we have not been able to successfully get what is needed. Please call the patient, their clinic, and/or doctor to get their insurance card picture(s). You can use the provided link which they can use to upload the pictures if that helps.</li>
             <li><strong>cardNotActive:</strong> We have primary insurance info but it is not showing as active info, so we need brand new info that is different from the existing info OR We have primary insurance info, but this is not their primary. It's their secondary. We need their primary info. It's possible the patient is confused. They might think their medicare card is their primary, but if they have medicare advantage then we need the private insurance company card, which is their real primary insurance info.</li>
-            <li><strong>contactTristin:</strong> Contact Tristin to discuss the current status, identify any roadblocks, and determine what actions can be taken to advance this case. Create a Google Chat group with Tristin and Divyesh to coordinate next steps.</li>
+            <li><strong>contactRahim:</strong> Contact Rahim to discuss the current status, identify any roadblocks, and determine what actions can be taken to advance this case. Create a Google Chat group with Rahim and Divyesh to coordinate next steps.</li>
         </ul>
     </div>
     '''
