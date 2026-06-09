@@ -861,7 +861,7 @@ def createIncompleteSignUpTable(df_salesperson):
         days_in_status = int(row['age_in_days'])
         clinic_name = row['clinic_name'] if not pd.isna(row['clinic_name']) else 'N/A'
 
-        crm_link = f"https://two.motusnova.com/viewBuilderApp/view-only/61da67fb-b01f-4f70-a0e8-72e808d9bf38=patient_contact_id:{patient_id}"
+        crm_link = f"https://two.motusnova.com/viewBuilderApp/view-only/22c86361-1cfd-4d24-bb16-e58df2925423=patient_contact_id:{patient_id}"
 
         row_color = '#f2f2f2' if index % 2 == 0 else 'white'
         html += f'''
